@@ -1,11 +1,12 @@
 """Dispatcher: picks up pending/error crawl_jobs rows and runs them one at a time (plan §7).
 Run scripts/run_discovery.py first to populate crawl_jobs.
 """
-from app.db.base import SessionLocal, init_db
+from app.db.base import SessionLocal
 from app.db.models import CrawlJob
 from app.graph.runners.mail_runner import run_mail_job
 from app.graph.runners.onedrive_runner import run_onedrive_job
 from app.graph.runners.sharepoint_runner import run_sharepoint_job
+from app.logging_config import get_logger
 
 RUNNERS = {
     "mail": run_mail_job,
@@ -15,7 +16,7 @@ RUNNERS = {
 
 
 def main() -> None:
-    init_db()
+    logger = get_logger()
     session = SessionLocal()
     try:
         jobs = session.query(CrawlJob).filter(CrawlJob.status.in_(["pending", "error"])).all()
@@ -24,11 +25,16 @@ def main() -> None:
         session.close()
 
     for source_type, account_or_site_id in job_refs:
-        print(f"Running {source_type} job for {account_or_site_id}...")
+        logger.info("dispatcher_job_started source=%s target=%s", source_type, account_or_site_id)
         try:
             RUNNERS[source_type](account_or_site_id)
         except Exception as exc:
-            print(f"  failed: {exc}")
+            logger.error(
+                "dispatcher_job_failed source=%s target=%s error=%s",
+                source_type,
+                account_or_site_id,
+                exc,
+            )
 
 
 if __name__ == "__main__":

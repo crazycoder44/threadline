@@ -6,14 +6,18 @@ from app.db.models import CrawlJob
 from app.graph.client import GraphClient
 from app.graph.domains import classify
 from app.graph.item_store import upsert_item
+from app.logging_config import get_job_logger
 
 
 def run_onedrive_job(user_id: str, max_items: int | None = None) -> None:
     """max_items caps total files fetched — for test slices only.
     When set, the delta token is NOT saved (the crawl is intentionally partial).
     """
-    client = GraphClient()
+    logger = get_job_logger("onedrive", user_id)
+    logger.info("job_started target=%s max_items=%s", user_id, max_items or "unlimited")
+    client = GraphClient(logger=logger)
     session = SessionLocal()
+    job = None
     try:
         job = session.query(CrawlJob).filter_by(source_type="onedrive", account_or_site_id=user_id).one()
         job.status = "running"
@@ -25,6 +29,8 @@ def run_onedrive_job(user_id: str, max_items: int | None = None) -> None:
         for item in client.run_delta(start_url):
             _store_drive_item(session, user_id, item)
             count += 1
+            if count % 1000 == 0:
+                logger.info("progress items=%s", count)
             if max_items is not None and count >= max_items:
                 capped = True
                 break
@@ -36,10 +42,13 @@ def run_onedrive_job(user_id: str, max_items: int | None = None) -> None:
         job.last_item_count = count
         job.last_error = None
         session.commit()
+        logger.info("job_completed target=%s items=%s capped=%s", user_id, count, capped)
     except Exception as exc:
-        job.status = "error"
-        job.last_error = str(exc)
-        session.commit()
+        if job is not None:
+            job.status = "error"
+            job.last_error = str(exc)
+            session.commit()
+        logger.exception("job_failed target=%s items=%s", user_id, count if "count" in locals() else 0)
         raise
     finally:
         session.close()

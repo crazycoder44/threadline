@@ -7,6 +7,7 @@ import requests
 import msal
 
 from app.config import GraphConfig
+from app.logging_config import get_logger
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 SCOPE = ["https://graph.microsoft.com/.default"]
@@ -14,7 +15,8 @@ MAX_RETRIES = 5
 
 
 class GraphClient:
-    def __init__(self):
+    def __init__(self, logger=None):
+        self.logger = logger or get_logger()
         authority = f"https://login.microsoftonline.com/{GraphConfig.tenant_id}"
         self._app = msal.ConfidentialClientApplication(
             GraphConfig.client_id, authority=authority,
@@ -39,6 +41,12 @@ class GraphClient:
             )
             if resp.status_code == 429:
                 wait = int(resp.headers.get("Retry-After", "5"))
+                self.logger.warning(
+                    "graph_retry status=429 attempt=%s wait_seconds=%s path=%s",
+                    attempt + 1,
+                    wait,
+                    url.split("?", 1)[0],
+                )
                 time.sleep(wait)
                 continue
             resp.raise_for_status()

@@ -9,12 +9,13 @@ If --site is omitted, the first site returned by tenant site discovery is picked
 """
 import argparse
 
-from app.db.base import SessionLocal, init_db
+from app.db.base import SessionLocal
 from app.graph.client import GraphClient
 from app.graph.discovery import upsert_job
 from app.graph.runners.mail_runner import run_mail_job
 from app.graph.runners.onedrive_runner import run_onedrive_job
 from app.graph.runners.sharepoint_runner import run_sharepoint_job
+from app.logging_config import get_logger
 
 
 def pick_first_site(client: GraphClient) -> dict:
@@ -26,13 +27,13 @@ def pick_first_site(client: GraphClient) -> dict:
 
 
 def main() -> None:
+    logger = get_logger()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--user", required=True, help="User email/UPN to crawl mail+onedrive for")
     parser.add_argument("--site", help="SharePoint site ID to crawl (auto-picked if omitted)")
     parser.add_argument("--max-items", type=int, default=50)
     args = parser.parse_args()
 
-    init_db()
     client = GraphClient()
     user_id = client.get(f"/users/{args.user}")["id"]
 
@@ -41,7 +42,7 @@ def main() -> None:
     else:
         site = pick_first_site(client)
         site_id = site["id"]
-        print(f"No --site given — picked '{site.get('displayName')}' ({site.get('webUrl')})")
+        logger.info("site_selected display_name=%s web_url=%s", site.get("displayName"), site.get("webUrl"))
 
     session = SessionLocal()
     try:
@@ -52,16 +53,16 @@ def main() -> None:
     finally:
         session.close()
 
-    print(f"Crawling mail for {args.user} (max {args.max_items})...")
+    logger.info("test_slice_source_started source=mail user=%s max_items=%s", args.user, args.max_items)
     run_mail_job(user_id, max_items=args.max_items)
 
-    print(f"Crawling onedrive for {args.user} (max {args.max_items})...")
+    logger.info("test_slice_source_started source=onedrive user=%s max_items=%s", args.user, args.max_items)
     run_onedrive_job(user_id, max_items=args.max_items)
 
-    print(f"Crawling site {site_id} (max {args.max_items})...")
+    logger.info("test_slice_source_started source=sharepoint site=%s max_items=%s", site_id, args.max_items)
     run_sharepoint_job(site_id, max_items=args.max_items)
 
-    print("Done — check the items table.")
+    logger.info("test_slice_completed user=%s site=%s", args.user, site_id)
 
 
 if __name__ == "__main__":

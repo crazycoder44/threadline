@@ -10,6 +10,5 @@ Base = declarative_base()
 
 
 def init_db() -> None:
-    """Create all tables. Replace with Alembic migrations once the schema stabilizes."""
-    from app.db import models  # noqa: F401 (registers models on Base)
-    Base.metadata.create_all(bind=engine)
+    """Legacy compatibility hook; apply schema changes with Alembic instead."""
+    return None
