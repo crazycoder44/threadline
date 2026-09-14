@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from app.db.base import SessionLocal
 from app.db.models import CrawlJob
-from app.graph.client import GraphClient
+from app.graph.client import GraphClient, InvalidDeltaTokenError
 from app.graph.domains import classify
 from app.graph.item_store import upsert_item
 from app.logging_config import get_job_logger
@@ -37,15 +37,24 @@ def run_mail_job(user_id: str, max_items: int | None = None) -> None:
         for key, folder in FOLDERS.items():
             if max_items is not None and total_count >= max_items:
                 break
-            start_url = tokens.get(key) or f"/users/{user_id}/mailFolders/{folder}/messages/delta"
-            for message in client.run_delta(start_url):
-                _store_message(session, user_id, message)
-                total_count += 1
-                if total_count % 1000 == 0:
-                    logger.info("progress items=%s folder=%s", total_count, folder)
-                if max_items is not None and total_count >= max_items:
-                    capped = True
+            default_url = f"/users/{user_id}/mailFolders/{folder}/messages/delta"
+            for attempt in range(2):
+                start_url = tokens.get(key) or default_url
+                try:
+                    for message in client.run_delta(start_url):
+                        _store_message(session, user_id, message)
+                        total_count += 1
+                        if total_count % 1000 == 0:
+                            logger.info("progress items=%s folder=%s", total_count, folder)
+                        if max_items is not None and total_count >= max_items:
+                            capped = True
+                            break
                     break
+                except InvalidDeltaTokenError:
+                    if attempt:
+                        raise
+                    tokens.pop(key, None)
+                    logger.warning("delta_token_reset target=%s folder=%s", user_id, folder)
             if not capped:
                 tokens[key] = client.last_delta_link
 

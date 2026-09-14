@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from app.db.base import SessionLocal
 from app.db.models import CrawlJob
-from app.graph.client import GraphClient
+from app.graph.client import GraphClient, InvalidDeltaTokenError
 from app.graph.domains import classify
 from app.graph.item_store import upsert_item
 from app.logging_config import get_job_logger
@@ -35,15 +35,24 @@ def run_sharepoint_job(site_id: str, max_items: int | None = None) -> None:
             if capped:
                 break
             drive_id = drive["id"]
-            start_url = tokens.get(drive_id) or f"/drives/{drive_id}/root/delta"
-            for item in client.run_delta(start_url):
-                _store_drive_item(session, site_id, drive_id, item)
-                total_count += 1
-                if total_count % 1000 == 0:
-                    logger.info("progress items=%s drive=%s", total_count, drive_id)
-                if max_items is not None and total_count >= max_items:
-                    capped = True
+            default_url = f"/drives/{drive_id}/root/delta"
+            for attempt in range(2):
+                start_url = tokens.get(drive_id) or default_url
+                try:
+                    for item in client.run_delta(start_url):
+                        _store_drive_item(session, site_id, drive_id, item)
+                        total_count += 1
+                        if total_count % 1000 == 0:
+                            logger.info("progress items=%s drive=%s", total_count, drive_id)
+                        if max_items is not None and total_count >= max_items:
+                            capped = True
+                            break
                     break
+                except InvalidDeltaTokenError:
+                    if attempt:
+                        raise
+                    tokens.pop(drive_id, None)
+                    logger.warning("delta_token_reset target=%s drive=%s", site_id, drive_id)
             if not capped:
                 tokens[drive_id] = client.last_delta_link
 

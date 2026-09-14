@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from app.db.base import SessionLocal
 from app.db.models import CrawlJob
-from app.graph.client import GraphClient
+from app.graph.client import GraphClient, InvalidDeltaTokenError
 from app.graph.domains import classify
 from app.graph.item_store import upsert_item
 from app.logging_config import get_job_logger
@@ -23,17 +23,26 @@ def run_onedrive_job(user_id: str, max_items: int | None = None) -> None:
         job.status = "running"
         session.commit()
 
-        start_url = job.delta_token or f"/users/{user_id}/drive/root/delta"
         count = 0
         capped = False
-        for item in client.run_delta(start_url):
-            _store_drive_item(session, user_id, item)
-            count += 1
-            if count % 1000 == 0:
-                logger.info("progress items=%s", count)
-            if max_items is not None and count >= max_items:
-                capped = True
+        default_url = f"/users/{user_id}/drive/root/delta"
+        for attempt in range(2):
+            start_url = job.delta_token or default_url
+            try:
+                for item in client.run_delta(start_url):
+                    _store_drive_item(session, user_id, item)
+                    count += 1
+                    if count % 1000 == 0:
+                        logger.info("progress items=%s", count)
+                    if max_items is not None and count >= max_items:
+                        capped = True
+                        break
                 break
+            except InvalidDeltaTokenError:
+                if attempt:
+                    raise
+                job.delta_token = None
+                logger.warning("delta_token_reset target=%s", user_id)
 
         if not capped:
             job.delta_token = client.last_delta_link

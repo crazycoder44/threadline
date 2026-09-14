@@ -1,4 +1,4 @@
-"""Dispatcher: picks up pending/error crawl_jobs rows and runs them one at a time (plan §7).
+"""Dispatcher: runs pending, completed, and failed crawl_jobs one at a time (plan §7).
 Run scripts/run_discovery.py first to populate crawl_jobs.
 """
 from app.db.base import SessionLocal
@@ -19,7 +19,7 @@ def main() -> None:
     logger = get_logger()
     session = SessionLocal()
     try:
-        jobs = session.query(CrawlJob).filter(CrawlJob.status.in_(["pending", "error"])).all()
+        jobs = session.query(CrawlJob).filter(CrawlJob.status.in_(["pending", "done", "error"])).all()
         job_refs = [(j.source_type, j.account_or_site_id) for j in jobs]
     finally:
         session.close()

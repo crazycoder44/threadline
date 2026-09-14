@@ -14,6 +14,10 @@ SCOPE = ["https://graph.microsoft.com/.default"]
 MAX_RETRIES = 5
 
 
+class InvalidDeltaTokenError(RuntimeError):
+    """Raised when Microsoft Graph rejects a saved delta cursor."""
+
+
 class GraphClient:
     def __init__(self, logger=None):
         self.logger = logger or get_logger()
@@ -49,6 +53,8 @@ class GraphClient:
                 )
                 time.sleep(wait)
                 continue
+            if resp.status_code == 410:
+                raise InvalidDeltaTokenError(f"Graph delta token expired or is invalid: {url}")
             resp.raise_for_status()
             return resp
         raise RuntimeError(f"Graph request throttled past {MAX_RETRIES} retries: {url}")

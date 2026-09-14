@@ -48,9 +48,11 @@ logs/
 # Editors and operating systems
 .vscode/
 .idea/
+cia_root.code-workspace
 .DS_Store
 Thumbs.db
 
 # Project-specific files
 M365_Intelligence_Layer_Development_Flow.docx
 meta_crawler_implementation_plan.md
+ai_agent_architecture.md
